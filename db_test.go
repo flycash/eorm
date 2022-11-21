@@ -94,21 +94,21 @@ func ExampleOpen() {
 	// case1 dialect: SQLite
 }
 
-func ExampleDB_Delete() {
+func ExampleNewDeleter() {
 	db := memoryDB()
 	tm := &TestModel{}
-	query, _ := db.Delete().From(tm).Build()
+	query, _ := NewDeleter[TestModel](db).From(tm).Build()
 	fmt.Printf("SQL: %s", query.SQL)
 	// Output:
 	// SQL: DELETE FROM `test_model`;
 }
 
-func ExampleDB_Update() {
+func ExampleNewUpdater() {
 	db := memoryDB()
 	tm := &TestModel{
 		Age: 18,
 	}
-	query, _ := db.Update(tm).Build()
+	query, _ := NewUpdater[TestModel](db).Update(tm).Build()
 	fmt.Printf("SQL: %s", query.SQL)
 	// Output:
 	// SQL: UPDATE `test_model` SET `id`=?,`first_name`=?,`age`=?,`last_name`=?;
@@ -146,15 +146,15 @@ func BenchmarkQuerier_Get(b *testing.B) {
 	defer func() {
 		_ = orm.Close()
 	}()
-	_, _ = RawQuery[any](orm, TestModel{}.CreateSQL()).Exec(context.Background())
-	res, err := NewInserter[TestModel](orm).Values(&TestModel{
+	_ = RawQuery[any](orm, TestModel{}.CreateSQL()).Exec(context.Background())
+	res := NewInserter[TestModel](orm).Values(&TestModel{
 		Id:        12,
 		FirstName: "Deng",
 		Age:       18,
 		LastName:  &sql.NullString{String: "Ming", Valid: true},
 	}).Exec(context.Background())
-	if err != nil {
-		b.Fatal(err)
+	if res.Err() != nil {
+		b.Fatal(res.Err())
 	}
 	affected, err := res.RowsAffected()
 	if err != nil {

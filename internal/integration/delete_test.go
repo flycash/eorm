@@ -28,51 +28,59 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-type InsertTestSuite struct {
+type DeleteTestSuite struct {
 	Suite
 }
 
-func (i *InsertTestSuite) TearDownTest() {
+func (s *DeleteTestSuite) SetupSuite() {
+	s.Suite.SetupSuite()
+	data1 := test.NewSimpleStruct(1)
+	data2 := test.NewSimpleStruct(2)
+	data3 := test.NewSimpleStruct(3)
+	res := eorm.NewInserter[test.SimpleStruct](s.orm).Values(data1, data2, data3).Exec(context.Background())
+	if res.Err() != nil {
+		s.T().Fatal(res.Err())
+	}
+}
+
+func (i *DeleteTestSuite) TearDownTest() {
 	res := eorm.RawQuery[any](i.orm, "DELETE FROM `simple_struct`").Exec(context.Background())
 	if res.Err() != nil {
 		i.T().Fatal(res.Err())
 	}
 }
 
-func (i *InsertTestSuite) TestInsert() {
+func (i *DeleteTestSuite) TestDeleter() {
 	testCases := []struct {
 		name         string
-		i            *eorm.Inserter[test.SimpleStruct]
+		i            *eorm.Deleter[test.SimpleStruct]
 		rowsAffected int64
 		wantErr      error
 	}{
 		{
 			name:         "id only",
-			i:            eorm.NewInserter[test.SimpleStruct](i.orm).Values(&test.SimpleStruct{Id: 1}),
+			i:            eorm.NewDeleter[test.SimpleStruct](i.orm).From(&test.SimpleStruct{}).Where(eorm.C("Id").EQ("1")),
 			rowsAffected: 1,
 		},
 		{
-			name:         "all field",
-			i:            eorm.NewInserter[test.SimpleStruct](i.orm).Values(test.NewSimpleStruct(2)),
-			rowsAffected: 1,
+			name:         "delete all",
+			i:            eorm.NewDeleter[test.SimpleStruct](i.orm).From(&test.SimpleStruct{}),
+			rowsAffected: 2,
 		},
 	}
 	for _, tc := range testCases {
 		i.T().Run(tc.name, func(t *testing.T) {
 			res := tc.i.Exec(context.Background())
-			assert.Equal(t, tc.wantErr, res.Err())
-			if res.Err() != nil {
-				return
-			}
+			require.Equal(t, tc.wantErr, res.Err())
 			affected, err := res.RowsAffected()
-			require.NoError(t, err)
+			require.Nil(t, err)
 			assert.Equal(t, tc.rowsAffected, affected)
 		})
 	}
 }
 
-func TestMySQL8Insert(t *testing.T) {
-	suite.Run(t, &InsertTestSuite{
+func TestMySQL8tDelete(t *testing.T) {
+	suite.Run(t, &DeleteTestSuite{
 		Suite{
 			driver: "mysql",
 			dsn:    "root:root@tcp(localhost:13306)/integration_test",

@@ -16,7 +16,6 @@ package eorm
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 
 	"github.com/gotomicro/eorm/internal/errs"
@@ -49,6 +48,7 @@ func NewInserter[T any](sess session) *Inserter[T] {
 // - All the values from function Values should have the same type.
 // - It will insert all columns including auto-increment primary key
 func (i *Inserter[T]) Build() (*Query, error) {
+	defer bytebufferpool.Put(i.buffer)
 	var err error
 	if len(i.values) == 0 {
 		return &Query{}, errors.New("插入0行")
@@ -105,10 +105,10 @@ func (i *Inserter[T]) Values(values ...*T) *Inserter[T] {
 }
 
 // Exec 发起查询
-func (i *Inserter[T]) Exec(ctx context.Context) (sql.Result, error) {
+func (i *Inserter[T]) Exec(ctx context.Context) Result {
 	query, err := i.Build()
 	if err != nil {
-		return nil, err
+		return Result{err: err}
 	}
 	return newQuerier[T](i.session, query).Exec(ctx)
 }

@@ -15,6 +15,7 @@
 package eorm
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 
@@ -25,19 +26,40 @@ import (
 )
 
 // Updater is the builder responsible for building UPDATE query
-type Updater struct {
+type Updater[T any] struct {
 	builder
+	session
 	table   interface{}
 	val     valuer.Value
 	where   []Predicate
 	assigns []Assignable
 }
 
+// NewUpdater 开始构建一个 UPDATE 查询
+func NewUpdater[T any](sess session) *Updater[T] {
+	return &Updater[T]{
+		builder: builder{
+			core:   sess.getCore(),
+			buffer: bytebufferpool.Get(),
+		},
+		session: sess,
+	}
+}
+
+func (u *Updater[T]) Update(val *T) *Updater[T] {
+	u.table = val
+	return u
+}
+
 // Build returns UPDATE query
-func (u *Updater) Build() (*Query, error) {
+func (u *Updater[T]) Build() (*Query, error) {
 	defer bytebufferpool.Put(u.buffer)
 	var err error
-	u.meta, err = u.metaRegistry.Get(u.table)
+	t := new(T)
+	if u.table == nil {
+		u.table = t
+	}
+	u.meta, err = u.metaRegistry.Get(t)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +94,7 @@ func (u *Updater) Build() (*Query, error) {
 	}, nil
 }
 
-func (u *Updater) buildAssigns() error {
+func (u *Updater[T]) buildAssigns() error {
 	has := false
 	for _, assign := range u.assigns {
 		if has {
@@ -119,7 +141,7 @@ func (u *Updater) buildAssigns() error {
 	return nil
 }
 
-func (u *Updater) buildDefaultColumns() error {
+func (u *Updater[T]) buildDefaultColumns() error {
 	has := false
 	for _, c := range u.meta.Columns {
 		val, _ := u.val.Field(c.FieldName)
@@ -138,13 +160,13 @@ func (u *Updater) buildDefaultColumns() error {
 }
 
 // Set represents SET clause
-func (u *Updater) Set(assigns ...Assignable) *Updater {
+func (u *Updater[T]) Set(assigns ...Assignable) *Updater[T] {
 	u.assigns = assigns
 	return u
 }
 
 // Where represents WHERE clause
-func (u *Updater) Where(predicates ...Predicate) *Updater {
+func (u *Updater[T]) Where(predicates ...Predicate) *Updater[T] {
 	u.where = predicates
 	return u
 }
@@ -171,15 +193,46 @@ func AssignNotZeroColumns(entity interface{}) []Assignable {
 // If the returned value is true, this column will be updated.
 func AssignColumns(entity interface{}, filter func(typ reflect.StructField, val reflect.Value) bool) []Assignable {
 	val := reflect.ValueOf(entity).Elem()
-	typ := reflect.TypeOf(entity).Elem()
 	numField := val.NumField()
-	res := make([]Assignable, 0, numField)
-	for i := 0; i < numField; i++ {
-		fieldVal := val.Field(i)
-		fieldTyp := typ.Field(i)
+
+	fdTypes := make([]reflect.StructField, 0, numField)
+	fdValues := make([]reflect.Value, 0, numField)
+	flapFields(entity, &fdTypes, &fdValues)
+
+	res := make([]Assignable, 0, len(fdTypes))
+	for i := 0; i < len(fdTypes); i++ {
+		fieldVal := fdValues[i]
+		fieldTyp := fdTypes[i]
 		if filter(fieldTyp, fieldVal) {
 			res = append(res, Assign(fieldTyp.Name, fieldVal.Interface()))
 		}
 	}
 	return res
+}
+
+func flapFields(entity interface{}, fdTypes *[]reflect.StructField, fdValues *[]reflect.Value) {
+	typ := reflect.TypeOf(entity)
+	val := reflect.ValueOf(entity)
+	if typ.Kind() == reflect.Pointer {
+		typ = typ.Elem()
+		val = val.Elem()
+	}
+	numField := val.NumField()
+	for i := 0; i < numField; i++ {
+		if !typ.Field(i).Anonymous {
+			*fdTypes = append(*fdTypes, typ.Field(i))
+			*fdValues = append(*fdValues, val.Field(i))
+			continue
+		}
+		flapFields(val.Field(i).Interface(), fdTypes, fdValues)
+	}
+}
+
+// Exec sql
+func (u *Updater[T]) Exec(ctx context.Context) Result {
+	query, err := u.Build()
+	if err != nil {
+		return Result{err: err}
+	}
+	return newQuerier[T](u.session, query).Exec(ctx)
 }

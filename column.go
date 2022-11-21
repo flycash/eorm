@@ -93,6 +93,24 @@ func (c Column) As(alias string) Selectable {
 	}
 }
 
+// Like -> LIKE %XXX 、_x_ 、xx[xx-xx] 、xx[^xx-xx]
+func (c Column) Like(val interface{}) Predicate {
+	return Predicate{
+		left:  c,
+		op:    opLike,
+		right: valueOf(val),
+	}
+}
+
+// NotLike -> NOT LIKE %XXX 、_x_ 、xx[xx-xx] 、xx[^xx-xx]
+func (c Column) NotLike(val interface{}) Predicate {
+	return Predicate{
+		left:  c,
+		op:    opNotLike,
+		right: valueOf(val),
+	}
+}
+
 // Add generate an additive expression
 func (c Column) Add(val interface{}) MathExpr {
 	return MathExpr{
@@ -127,11 +145,11 @@ type columns struct {
 	cs []string
 }
 
-func (c columns) selected() {
+func (columns) selected() {
 	panic("implement me")
 }
 
-func (c columns) assign() {
+func (columns) assign() {
 	panic("implement me")
 }
 
@@ -140,4 +158,45 @@ func Columns(cs ...string) columns {
 	return columns{
 		cs: cs,
 	}
+}
+
+// In 方法没有元素传入，会被认为是false，被解释成where false这种形式
+func (c Column) In(data ...any) Predicate {
+	if len(data) == 0 {
+		return Predicate{
+			op: opFalse,
+		}
+	}
+
+	return Predicate{
+		left: c,
+		op:   opIn,
+		right: values{
+			data: data,
+		},
+	}
+}
+
+// NotIn 方法没有元素传入，会被认为是false，被解释成where false这种形式
+func (c Column) NotIn(data ...any) Predicate {
+	if len(data) == 0 {
+		return Predicate{
+			op: opFalse,
+		}
+	}
+	return Predicate{
+		left: c,
+		op:   opNotIN,
+		right: values{
+			data: data,
+		},
+	}
+}
+
+type values struct {
+	data []any
+}
+
+func (values) expr() (string, error) {
+	panic("implement me")
 }

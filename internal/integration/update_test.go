@@ -20,7 +20,6 @@ import (
 	"context"
 	"testing"
 
-	_ "github.com/go-sql-driver/mysql"
 	"github.com/gotomicro/eorm"
 	"github.com/gotomicro/eorm/internal/test"
 	"github.com/stretchr/testify/assert"
@@ -28,38 +27,43 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-type InsertTestSuite struct {
+type UpdateTestSuite struct {
 	Suite
 }
 
-func (i *InsertTestSuite) TearDownTest() {
-	res := eorm.RawQuery[any](i.orm, "DELETE FROM `simple_struct`").Exec(context.Background())
+func (u *UpdateTestSuite) SetupSuite() {
+	u.Suite.SetupSuite()
+	data1 := test.NewSimpleStruct(1)
+	res := eorm.NewInserter[test.SimpleStruct](u.orm).Values(data1).Exec(context.Background())
 	if res.Err() != nil {
-		i.T().Fatal(res.Err())
+		u.T().Fatal(res.Err())
 	}
 }
 
-func (i *InsertTestSuite) TestInsert() {
+func (u *UpdateTestSuite) TearDownTest() {
+	res := eorm.RawQuery[any](u.orm, "DELETE FROM `simple_struct`").Exec(context.Background())
+	if res.Err() != nil {
+		u.T().Fatal(res.Err())
+	}
+}
+
+func (u *UpdateTestSuite) TestUpdate() {
 	testCases := []struct {
 		name         string
-		i            *eorm.Inserter[test.SimpleStruct]
+		u            *eorm.Updater[test.SimpleStruct]
 		rowsAffected int64
 		wantErr      error
 	}{
 		{
-			name:         "id only",
-			i:            eorm.NewInserter[test.SimpleStruct](i.orm).Values(&test.SimpleStruct{Id: 1}),
-			rowsAffected: 1,
-		},
-		{
-			name:         "all field",
-			i:            eorm.NewInserter[test.SimpleStruct](i.orm).Values(test.NewSimpleStruct(2)),
+			name: "update columns",
+			u: eorm.NewUpdater[test.SimpleStruct](u.orm).Update(&test.SimpleStruct{Int: 18}).
+				Set(eorm.Columns("Int")).Where(eorm.C("Id").EQ(1)),
 			rowsAffected: 1,
 		},
 	}
 	for _, tc := range testCases {
-		i.T().Run(tc.name, func(t *testing.T) {
-			res := tc.i.Exec(context.Background())
+		u.T().Run(tc.name, func(t *testing.T) {
+			res := tc.u.Exec(context.Background())
 			assert.Equal(t, tc.wantErr, res.Err())
 			if res.Err() != nil {
 				return
@@ -71,8 +75,8 @@ func (i *InsertTestSuite) TestInsert() {
 	}
 }
 
-func TestMySQL8Insert(t *testing.T) {
-	suite.Run(t, &InsertTestSuite{
+func TestMySQL8Update(t *testing.T) {
+	suite.Run(t, &UpdateTestSuite{
 		Suite{
 			driver: "mysql",
 			dsn:    "root:root@tcp(localhost:13306)/integration_test",
